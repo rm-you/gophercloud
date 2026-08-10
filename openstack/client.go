@@ -11,6 +11,7 @@ import (
 	tokens2 "github.com/gophercloud/gophercloud/v2/openstack/identity/v2/tokens"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/ec2tokens"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/oauth1"
+	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/oidc"
 	tokens3 "github.com/gophercloud/gophercloud/v2/openstack/identity/v3/tokens"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/websso"
 	"github.com/gophercloud/gophercloud/v2/openstack/utils"
@@ -228,6 +229,8 @@ func v3auth(ctx context.Context, client *gophercloud.ProviderClient, endpoint st
 			result = ec2tokens.Create(ctx, v3Client, opts)
 		case *oauth1.AuthOptions:
 			result = oauth1.Create(ctx, v3Client, opts)
+		case *oidc.AuthOptions:
+			result = oidc.Create(ctx, v3Client, opts)
 		case *websso.AuthOptions:
 			result = websso.Authenticate(ctx, v3Client, opts)
 		default:
@@ -271,6 +274,10 @@ func v3auth(ctx context.Context, client *gophercloud.ProviderClient, endpoint st
 			o.AllowReauth = false
 			tao = &o
 		case *oauth1.AuthOptions:
+			o := *ot
+			o.AllowReauth = false
+			tao = &o
+		case *oidc.AuthOptions:
 			o := *ot
 			o.AllowReauth = false
 			tao = &o
