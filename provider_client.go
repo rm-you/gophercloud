@@ -145,13 +145,9 @@ func (f *reauthFuture) Get(ctx context.Context) error {
 }
 
 // AuthenticatedHeaders returns a map of HTTP headers that are common for all
-// authenticated service requests. Blocks if Reauthenticate is in progress.
-func (client *ProviderClient) AuthenticatedHeaders() map[string]string {
-	headers, _ := client.authenticatedHeaders(context.Background())
-	return headers
-}
-
-func (client *ProviderClient) authenticatedHeaders(ctx context.Context) (map[string]string, error) {
+// authenticated service requests. It waits for any reauthentication in progress
+// and returns an error if the context is canceled.
+func (client *ProviderClient) AuthenticatedHeaders(ctx context.Context) (map[string]string, error) {
 	if client.IsThrowaway() {
 		return nil, nil
 	}
@@ -421,7 +417,7 @@ func (client *ProviderClient) doRequest(ctx context.Context, method, url string,
 	}
 
 	// get latest token from client
-	authenticatedHeaders, err := client.authenticatedHeaders(ctx)
+	authenticatedHeaders, err := client.AuthenticatedHeaders(ctx)
 	if err != nil {
 		return nil, err
 	}

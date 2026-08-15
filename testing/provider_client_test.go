@@ -26,8 +26,41 @@ func TestAuthenticatedHeaders(t *testing.T) {
 		TokenID: "1234",
 	}
 	expected := map[string]string{"X-Auth-Token": "1234"}
-	actual := p.AuthenticatedHeaders()
+	actual, err := p.AuthenticatedHeaders(context.Background())
+	th.AssertNoErr(t, err)
 	th.CheckDeepEquals(t, expected, actual)
+}
+
+func TestAuthenticatedHeadersHonorsContext(t *testing.T) {
+	p := new(gophercloud.ProviderClient)
+	p.UseTokenLock()
+	p.SetToken("old-token")
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	p.ReauthFunc = func(context.Context) error {
+		close(started)
+		<-release
+		return nil
+	}
+
+	first := make(chan error, 1)
+	go func() {
+		first <- p.Reauthenticate(context.Background(), "")
+	}()
+	<-started
+	t.Cleanup(func() {
+		close(release)
+		th.AssertNoErr(t, <-first)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	headers, err := p.AuthenticatedHeaders(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
+	}
+	th.AssertDeepEquals(t, map[string]string(nil), headers)
 }
 
 func TestConcurrentReauthenticateHonorsContext(t *testing.T) {
@@ -167,16 +200,16 @@ func TestConcurrentReauth(t *testing.T) {
 	p := new(gophercloud.ProviderClient)
 	p.UseTokenLock()
 	p.SetToken(prereauthTok)
-	p.ReauthFunc = func(_ context.Context) error {
+	p.ReauthFunc = func(ctx context.Context) error {
 		p.SetThrowaway(true)
 		time.Sleep(1 * time.Second)
-		p.AuthenticatedHeaders()
+		_, err := p.AuthenticatedHeaders(ctx)
 		info.mut.Lock()
 		info.numreauths++
 		info.mut.Unlock()
 		p.TokenID = postreauthTok
 		p.SetThrowaway(false)
-		return nil
+		return err
 	}
 
 	fakeServer := th.SetupHTTP()
@@ -255,7 +288,7 @@ func TestReauthEndLoop(t *testing.T) {
 	p := new(gophercloud.ProviderClient)
 	p.UseTokenLock()
 	p.SetToken(client.TokenID)
-	p.ReauthFunc = func(_ context.Context) error {
+	p.ReauthFunc = func(ctx context.Context) error {
 		info.mut.Lock()
 		defer info.mut.Unlock()
 
@@ -264,11 +297,11 @@ func TestReauthEndLoop(t *testing.T) {
 			return fmt.Errorf("max reauthentication attempts reached")
 		}
 		p.SetThrowaway(true)
-		p.AuthenticatedHeaders()
+		_, err := p.AuthenticatedHeaders(ctx)
 		p.SetThrowaway(false)
 		info.reauthAttempts++
 
-		return nil
+		return err
 	}
 
 	fakeServer := th.SetupHTTP()
@@ -337,7 +370,7 @@ func TestRequestThatCameDuringReauthWaitsUntilItIsCompleted(t *testing.T) {
 	p := new(gophercloud.ProviderClient)
 	p.UseTokenLock()
 	p.SetToken(prereauthTok)
-	p.ReauthFunc = func(_ context.Context) error {
+	p.ReauthFunc = func(ctx context.Context) error {
 		info.mut.RLock()
 		if info.numreauths == 0 {
 			info.mut.RUnlock()
@@ -347,13 +380,13 @@ func TestRequestThatCameDuringReauthWaitsUntilItIsCompleted(t *testing.T) {
 			info.mut.RUnlock()
 		}
 		p.SetThrowaway(true)
-		p.AuthenticatedHeaders()
+		_, err := p.AuthenticatedHeaders(ctx)
 		info.mut.Lock()
 		info.numreauths++
 		info.mut.Unlock()
 		p.TokenID = postreauthTok
 		p.SetThrowaway(false)
-		return nil
+		return err
 	}
 
 	fakeServer := th.SetupHTTP()
