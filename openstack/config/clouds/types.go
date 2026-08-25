@@ -1,6 +1,22 @@
 package clouds
 
-import "encoding/json"
+import (
+	"crypto/tls"
+	"encoding/json"
+
+	"github.com/gophercloud/gophercloud/v2"
+	tokens3 "github.com/gophercloud/gophercloud/v2/openstack/identity/v3/tokens"
+)
+
+// CloudConfig contains the selected cloud and the options needed to create an
+// Identity v3 ProviderClient and service clients.
+type CloudConfig struct {
+	Cloud            Cloud
+	IdentityEndpoint string
+	AuthOptions      tokens3.AuthOptionsBuilder
+	EndpointOptions  gophercloud.EndpointOpts
+	TLSConfig        *tls.Config
+}
 
 // Clouds represents a collection of Cloud entries in a clouds.yaml file.
 // The format of clouds.yaml is documented at
@@ -46,6 +62,10 @@ type Cloud struct {
 	// ClientKeyFile a path to a client key to use as part of the SSL
 	// transaction.
 	ClientKeyFile string `yaml:"key,omitempty" json:"key,omitempty"`
+
+	// IdentityProvider and Protocol may appear outside auth in clouds.yaml.
+	IdentityProvider string `yaml:"identity_provider,omitempty" json:"identity_provider,omitempty"`
+	Protocol         string `yaml:"protocol,omitempty" json:"protocol,omitempty"`
 }
 
 // AuthInfo represents the auth section of a cloud entry or
@@ -136,6 +156,42 @@ type AuthInfo struct {
 	// false, it will not cache these settings, but re-authentication will not be
 	// possible.  This setting defaults to false.
 	AllowReauth bool `yaml:"allow_reauth,omitempty" json:"allow_reauth,omitempty"`
+
+	// ClientID is the OAuth 2.0 client ID.
+	ClientID string `yaml:"client_id,omitempty" json:"client_id,omitempty"`
+
+	// ClientSecret is the OAuth 2.0 client secret.
+	ClientSecret string `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
+
+	// OAuth2ClientID overrides ClientID for Keystone OAuth2 authentication.
+	OAuth2ClientID string `yaml:"oauth2_client_id,omitempty" json:"oauth2_client_id,omitempty"`
+
+	// OAuth2Endpoint is Keystone's OS-OAUTH2 token endpoint.
+	OAuth2Endpoint string `yaml:"oauth2_endpoint,omitempty" json:"oauth2_endpoint,omitempty"`
+
+	// AccessTokenEndpoint is the identity provider's token endpoint.
+	AccessTokenEndpoint string `yaml:"access_token_endpoint,omitempty" json:"access_token_endpoint,omitempty"`
+
+	// IdentityProvider is the Keystone federation identity provider.
+	IdentityProvider string `yaml:"identity_provider,omitempty" json:"identity_provider,omitempty"`
+
+	// Protocol is the Keystone federation protocol.
+	Protocol string `yaml:"protocol,omitempty" json:"protocol,omitempty"`
+
+	// AccessTokenType selects the token response field. It defaults to "access_token".
+	AccessTokenType string `yaml:"access_token_type,omitempty" json:"access_token_type,omitempty"`
+
+	// OpenIDScope is the OAuth 2.0 scope. It defaults to "openid".
+	OpenIDScope string `yaml:"openid_scope,omitempty" json:"openid_scope,omitempty"`
+
+	// DiscoveryEndpoint supplies AccessTokenEndpoint through OIDC discovery.
+	DiscoveryEndpoint string `yaml:"discovery_endpoint,omitempty" json:"discovery_endpoint,omitempty"`
+
+	// RedirectPort is the local WebSSO callback port. It defaults to 9990.
+	RedirectPort int `yaml:"redirect_port,omitempty" json:"redirect_port,omitempty"`
+
+	// RedirectHost is the loopback host used for the WebSSO callback.
+	RedirectHost string `yaml:"redirect_host,omitempty" json:"redirect_host,omitempty"`
 }
 
 // Region represents a region included as part of cloud in clouds.yaml
@@ -207,4 +263,14 @@ const (
 
 	// AuthV3ApplicationCredential defines version 3 of the application credential
 	AuthV3ApplicationCredential AuthType = "v3applicationcredential"
+
+	// AuthV3OIDCClientCredentials defines version 3 of the OIDC client credentials
+	AuthV3OIDCClientCredentials AuthType = "v3oidcclientcredentials"
+
+	// AuthV3WebSSO defines version 3 of the WebSSO browser-based federation auth
+	AuthV3WebSSO AuthType = "v3websso"
+
+	// AuthV3OAuth2MTLSClientCredential defines version 3 of the OAuth2 mTLS
+	// client credentials authentication via OS-OAUTH2.
+	AuthV3OAuth2MTLSClientCredential AuthType = "v3oauth2mtlsclientcredential"
 )

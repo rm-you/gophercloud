@@ -2,8 +2,10 @@ package clouds
 
 import (
 	"io"
+	"time"
 
 	"github.com/gophercloud/gophercloud/v2"
+	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/tokencache"
 )
 
 type cloudOpts struct {
@@ -34,6 +36,11 @@ type cloudOpts struct {
 	clientCertPath string
 	clientKeyPath  string
 	insecure       *bool
+
+	tokenCache          tokencache.Cache
+	tokenCacheNamespace string
+	webSSOBrowserOpener func(string) error
+	webSSOTimeout       time.Duration
 }
 
 // ParseOption one of parse configuration returned by With* modifier
@@ -206,5 +213,29 @@ func WithClientKeyPath(clientKeyPath string) ParseOption {
 func WithInsecure(insecure bool) ParseOption {
 	return func(co *cloudOpts) {
 		co.insecure = &insecure
+	}
+}
+
+// WithTokenCache enables WebSSO token reuse. If namespace is empty, the cloud
+// name is used.
+func WithTokenCache(cache tokencache.Cache, namespace string) ParseOption {
+	return func(co *cloudOpts) {
+		co.tokenCache = cache
+		co.tokenCacheNamespace = namespace
+	}
+}
+
+// WithWebSSOBrowserOpener overrides the operating system browser used for
+// WebSSO authentication.
+func WithWebSSOBrowserOpener(opener func(string) error) ParseOption {
+	return func(co *cloudOpts) {
+		co.webSSOBrowserOpener = opener
+	}
+}
+
+// WithWebSSOTimeout limits how long WebSSO waits for browser authentication.
+func WithWebSSOTimeout(timeout time.Duration) ParseOption {
+	return func(co *cloudOpts) {
+		co.webSSOTimeout = timeout
 	}
 }
