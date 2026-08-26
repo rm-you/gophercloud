@@ -37,7 +37,7 @@ func providerOptions(parsed *parsedCloud) (CloudConfig, error) {
 	var authOptions tokens3.AuthOptionsBuilder
 	switch authType {
 	case AuthV3OIDCClientCredentials:
-		authOptions = oidcAuthOptions(authInfo, cloud)
+		authOptions = oidcAuthOptions(parsed)
 	case AuthV3WebSSO:
 		redirectPort, err := webSSORedirectPort(authInfo.RedirectPort)
 		if err != nil {
@@ -50,7 +50,7 @@ func providerOptions(parsed *parsedCloud) (CloudConfig, error) {
 		authOptions = &websso.AuthOptions{
 			IdentityProviderName: coalesce(authInfo.IdentityProvider, cloud.IdentityProvider, os.Getenv("OS_IDENTITY_PROVIDER")),
 			Protocol:             coalesce(authInfo.Protocol, cloud.Protocol, os.Getenv("OS_PROTOCOL")),
-			Scope:                authScope(authInfo),
+			Scope:                authScope(parsed, true),
 			AllowReauth:          authInfo.AllowReauth,
 			RedirectPort:         redirectPort,
 			RedirectHost:         coalesce(authInfo.RedirectHost, os.Getenv("OS_REDIRECT_HOST")),
@@ -95,47 +95,55 @@ func standardV3AuthOptions(parsed *parsedCloud) *tokens3.AuthOptions {
 		ApplicationCredentialID:     coalesce(parsed.options.applicationCredentialID, authInfo.ApplicationCredentialID),
 		ApplicationCredentialName:   coalesce(parsed.options.applicationCredentialName, authInfo.ApplicationCredentialName),
 		ApplicationCredentialSecret: coalesce(parsed.options.applicationCredentialSecret, authInfo.ApplicationCredentialSecret),
-		Scope:                       authScope(authInfo),
+		Scope:                       authScope(parsed, false),
 	}
 }
 
-func oidcAuthOptions(authInfo *AuthInfo, cloud Cloud) *oidc.AuthOptions {
+func oidcAuthOptions(parsed *parsedCloud) *oidc.AuthOptions {
+	authInfo := parsed.cloud.AuthInfo
 	return &oidc.AuthOptions{
 		ClientID:             coalesce(authInfo.ClientID, os.Getenv("OS_CLIENT_ID")),
 		ClientSecret:         coalesce(authInfo.ClientSecret, os.Getenv("OS_CLIENT_SECRET")),
 		AccessTokenEndpoint:  coalesce(authInfo.AccessTokenEndpoint, os.Getenv("OS_ACCESS_TOKEN_ENDPOINT")),
 		DiscoveryEndpoint:    coalesce(authInfo.DiscoveryEndpoint, os.Getenv("OS_DISCOVERY_ENDPOINT")),
-		IdentityProviderName: coalesce(authInfo.IdentityProvider, cloud.IdentityProvider, os.Getenv("OS_IDENTITY_PROVIDER")),
-		Protocol:             coalesce(authInfo.Protocol, cloud.Protocol, os.Getenv("OS_PROTOCOL")),
+		IdentityProviderName: coalesce(authInfo.IdentityProvider, parsed.cloud.IdentityProvider, os.Getenv("OS_IDENTITY_PROVIDER")),
+		Protocol:             coalesce(authInfo.Protocol, parsed.cloud.Protocol, os.Getenv("OS_PROTOCOL")),
 		AccessTokenType:      coalesce(authInfo.AccessTokenType, os.Getenv("OS_ACCESS_TOKEN_TYPE")),
-		Scope:                authScope(authInfo),
+		Scope:                authScope(parsed, true),
 		AllowReauth:          authInfo.AllowReauth,
 		OIDCScope:            coalesce(authInfo.OpenIDScope, os.Getenv("OS_OPENID_SCOPE")),
 	}
 }
 
-func authScope(authInfo *AuthInfo) tokens3.Scope {
+func authScope(parsed *parsedCloud, domainScope bool) tokens3.Scope {
+	if parsed.options.scope != nil {
+		return tokens3.Scope(*parsed.options.scope)
+	}
+
+	authInfo := parsed.cloud.AuthInfo
 	if authInfo.TrustID != "" {
 		return tokens3.Scope{TrustID: authInfo.TrustID}
 	}
-	if authInfo.ProjectID != "" {
-		return tokens3.Scope{ProjectID: authInfo.ProjectID}
+	if projectID := coalesce(parsed.options.projectID, authInfo.ProjectID); projectID != "" {
+		return tokens3.Scope{ProjectID: projectID}
 	}
-	if authInfo.ProjectName != "" {
+	if projectName := coalesce(parsed.options.projectName, authInfo.ProjectName); projectName != "" {
 		return tokens3.Scope{
-			ProjectName: authInfo.ProjectName,
-			DomainID:    coalesce(authInfo.ProjectDomainID, authInfo.DomainID, authInfo.DefaultDomain),
-			DomainName:  coalesce(authInfo.ProjectDomainName, authInfo.DomainName),
+			ProjectName: projectName,
+			DomainID:    coalesce(parsed.options.domainID, authInfo.ProjectDomainID, authInfo.DomainID, authInfo.DefaultDomain),
+			DomainName:  coalesce(parsed.options.domainName, authInfo.ProjectDomainName, authInfo.DomainName),
 		}
-	}
-	if authInfo.DomainID != "" {
-		return tokens3.Scope{DomainID: authInfo.DomainID}
-	}
-	if authInfo.DomainName != "" {
-		return tokens3.Scope{DomainName: authInfo.DomainName}
 	}
 	if authInfo.SystemScope != "" {
 		return tokens3.Scope{System: true}
+	}
+	if domainScope {
+		if domainID := coalesce(parsed.options.domainID, authInfo.DomainID); domainID != "" {
+			return tokens3.Scope{DomainID: domainID}
+		}
+		if domainName := coalesce(parsed.options.domainName, authInfo.DomainName); domainName != "" {
+			return tokens3.Scope{DomainName: domainName}
+		}
 	}
 	return tokens3.Scope{}
 }

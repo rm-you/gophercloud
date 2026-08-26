@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gophercloud/gophercloud/v2"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/oauth2mtls"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/oidc"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/tokens"
@@ -46,6 +47,94 @@ clouds:
 	}
 	if opts.Scope.ProjectName != "project" || opts.Scope.DomainName != "projects" {
 		t.Fatalf("unexpected project scope: %#v", opts.Scope)
+	}
+}
+
+func TestParseV3PasswordOptionsSetScope(t *testing.T) {
+	tests := map[string]struct {
+		options []ParseOption
+		scope   tokens.Scope
+	}{
+		"project ID": {
+			options: []ParseOption{WithProjectID("override-project-id")},
+			scope:   tokens.Scope{ProjectID: "override-project-id"},
+		},
+		"project name": {
+			options: []ParseOption{
+				WithProjectName("override-project"),
+				WithDomainName("override-domain"),
+			},
+			scope: tokens.Scope{
+				ProjectName: "override-project",
+				DomainName:  "override-domain",
+			},
+		},
+		"explicit scope": {
+			options: []ParseOption{WithScope(&gophercloud.AuthScope{
+				DomainID: "scope-domain-id",
+			})},
+			scope: tokens.Scope{DomainID: "scope-domain-id"},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			options := []ParseOption{
+				WithCloudName("password"),
+				WithCloudsYAML(strings.NewReader(`
+clouds:
+  password:
+    auth_type: v3password
+    auth:
+      auth_url: https://identity.example/v3
+      username: user
+      password: secret
+      user_domain_name: users
+`)),
+			}
+			cloudConfig, err := ParseV3(append(options, test.options...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			opts, ok := cloudConfig.AuthOptions.(*tokens.AuthOptions)
+			if !ok {
+				t.Fatalf("unexpected auth options type: %T", cloudConfig.AuthOptions)
+			}
+			if opts.Scope != test.scope {
+				t.Fatalf("unexpected scope: %#v", opts.Scope)
+			}
+		})
+	}
+}
+
+func TestParseV3PasswordDomainDoesNotImplyScope(t *testing.T) {
+	cloudConfig, err := ParseV3(
+		WithCloudName("password"),
+		WithCloudsYAML(strings.NewReader(`
+clouds:
+  password:
+    auth_type: v3password
+    auth:
+      auth_url: https://identity.example/v3
+      username: user
+      password: secret
+      domain_name: users
+`)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts, ok := cloudConfig.AuthOptions.(*tokens.AuthOptions)
+	if !ok {
+		t.Fatalf("unexpected auth options type: %T", cloudConfig.AuthOptions)
+	}
+	if opts.DomainName != "users" {
+		t.Fatalf("unexpected user domain: %q", opts.DomainName)
+	}
+	if opts.Scope != (tokens.Scope{}) {
+		t.Fatalf("unexpected scope: %#v", opts.Scope)
 	}
 }
 
