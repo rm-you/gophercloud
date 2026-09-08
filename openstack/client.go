@@ -11,6 +11,7 @@ import (
 	tokens2 "github.com/gophercloud/gophercloud/v2/openstack/identity/v2/tokens"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/ec2tokens"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/oauth1"
+	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/oauth2mtls"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/oidc"
 	tokens3 "github.com/gophercloud/gophercloud/v2/openstack/identity/v3/tokens"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/websso"
@@ -224,6 +225,7 @@ func v3auth(ctx context.Context, client *gophercloud.ProviderClient, endpoint st
 		}
 	} else {
 		var result tokens3.CreateResult
+		var authenticatedHeadersFunc func(string) map[string]string
 		switch opts.(type) {
 		case *ec2tokens.AuthOptions:
 			result = ec2tokens.Create(ctx, v3Client, opts)
@@ -233,6 +235,11 @@ func v3auth(ctx context.Context, client *gophercloud.ProviderClient, endpoint st
 			result = websso.Authenticate(ctx, v3Client, opts)
 		case *oidc.AuthOptions:
 			result = oidc.Create(ctx, v3Client, opts)
+		case *oauth2mtls.AuthOptions:
+			result = oauth2mtls.Create(ctx, v3Client, opts)
+			authenticatedHeadersFunc = func(token string) map[string]string {
+				return map[string]string{"Authorization": "Bearer " + token}
+			}
 		default:
 			result = tokens3.Create(ctx, v3Client, opts)
 		}
@@ -246,6 +253,8 @@ func v3auth(ctx context.Context, client *gophercloud.ProviderClient, endpoint st
 		if err != nil {
 			return err
 		}
+
+		client.AuthenticatedHeadersFunc = authenticatedHeadersFunc
 	}
 
 	if opts.CanReauth() {
@@ -282,6 +291,10 @@ func v3auth(ctx context.Context, client *gophercloud.ProviderClient, endpoint st
 			o.AllowReauth = false
 			tao = &o
 		case *oidc.AuthOptions:
+			o := *ot
+			o.AllowReauth = false
+			tao = &o
+		case *oauth2mtls.AuthOptions:
 			o := *ot
 			o.AllowReauth = false
 			tao = &o
