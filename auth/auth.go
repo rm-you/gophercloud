@@ -230,6 +230,9 @@ func (ao AuthOptionsV3) create(ctx context.Context, httpClient *http.Client) (go
 }
 
 type AuthResult struct {
+	// TokenType selects the service authentication scheme. Empty uses
+	// X-Auth-Token; "Bearer" uses Authorization.
+	TokenType             string
 	TokenID               string
 	ExpiresAt             time.Time
 	IssuedAt              time.Time
@@ -302,6 +305,9 @@ func (r AuthResult) Token() string {
 }
 
 func (r AuthResult) AuthenticatedHeaders() map[string]string {
+	if r.TokenType == "Bearer" {
+		return map[string]string{"Authorization": "Bearer " + r.TokenID}
+	}
 	return map[string]string{"X-Auth-Token": r.TokenID}
 }
 
