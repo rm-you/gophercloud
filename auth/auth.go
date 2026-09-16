@@ -153,13 +153,33 @@ func (ao AuthOptionsV3) GetAuthURL() string {
 }
 
 func (ao AuthOptionsV3) Authenticate(ctx context.Context, httpClient *http.Client) (*AuthResult, error) {
+	result, err := ao.create(ctx, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	return v3AuthResult(result, ao.Auth.CanReauth())
+}
+
+// v3AuthResult normalizes token responses from password and federated flows.
+func v3AuthResult(result gophercloud.Result, canReauth bool) (*AuthResult, error) {
+	if result.Err != nil {
+		return nil, result.Err
+	}
+	var respBody v3TokenBody
+	if err := result.ExtractIntoStructPtr(&respBody, "token"); err != nil {
+		return nil, err
+	}
+	return respBody.toAuthResult(result.Header.Get("X-Subject-Token"), canReauth), nil
+}
+
+func (ao AuthOptionsV3) create(ctx context.Context, httpClient *http.Client) (gophercloud.Result, error) {
 	if ao.Auth == nil {
-		return nil, gophercloud.ErrMissingInput{Argument: "Auth"}
+		return gophercloud.Result{}, gophercloud.ErrMissingInput{Argument: "Auth"}
 	}
 
 	authData, err := ao.Auth.ToAuthBody()
 	if err != nil {
-		return nil, err
+		return gophercloud.Result{}, err
 	}
 
 	methods := slices.Collect(maps.Keys(authData))
@@ -172,7 +192,7 @@ func (ao AuthOptionsV3) Authenticate(ctx context.Context, httpClient *http.Clien
 	body := map[string]any{"identity": identity}
 	scopeMap, err := ao.Auth.ToAuthScope()
 	if err != nil {
-		return nil, err
+		return gophercloud.Result{}, err
 	}
 	if scopeMap != nil {
 		body["scope"] = scopeMap
@@ -180,7 +200,7 @@ func (ao AuthOptionsV3) Authenticate(ctx context.Context, httpClient *http.Clien
 
 	headers, err := ao.Auth.ToAuthHeaders()
 	if err != nil {
-		return nil, err
+		return gophercloud.Result{}, err
 	}
 	moreHeaders := make(map[string]string, len(headers))
 	for k, v := range headers {
@@ -203,15 +223,10 @@ func (ao AuthOptionsV3) Authenticate(ctx context.Context, httpClient *http.Clien
 	})
 	_, result.Header, result.Err = gophercloud.ParseResponse(resp, err)
 	if result.Err != nil {
-		return nil, result.Err
+		return gophercloud.Result{}, result.Err
 	}
 
-	var respBody v3TokenBody
-	if err := result.ExtractIntoStructPtr(&respBody, "token"); err != nil {
-		return nil, err
-	}
-
-	return respBody.toAuthResult(result.Header.Get("X-Subject-Token"), ao.Auth.CanReauth()), nil
+	return result, nil
 }
 
 type AuthResult struct {
