@@ -350,13 +350,28 @@ func TestAuthOptionsFromCloudDiscoversIdentityVersion(t *testing.T) {
 				th.TestMethod(t, r, http.MethodGet)
 				fmt.Fprintf(w, `{"versions":{"values":[{"id":%q,"status":"stable","links":[{"href":%q,"rel":"self"}]}]}}`, test.versionID, fakeServer.Endpoint()+test.suffix)
 			})
+			path := "/v3/auth/tokens"
+			body := `{"token":{}}`
+			if test.wantV2 {
+				path, body = "/v2.0/tokens", `{"access":{"token":{"id":"discovered"}}}`
+			}
+			fakeServer.Mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+				th.TestMethod(t, r, http.MethodPost)
+				w.Header().Set("X-Subject-Token", "discovered")
+				w.Header().Set("Content-Type", "application/json")
+				if !test.wantV2 {
+					w.WriteHeader(http.StatusCreated)
+				}
+				fmt.Fprint(w, body)
+			})
 
 			got, err := auth.AuthOptionsFromCloud(cloudSource{authType: auth.AuthPassword, authData: map[string]any{
-				"auth_url": fakeServer.Endpoint(), "username": "testuser", "password": "testpass",
+				"auth_url": fakeServer.Endpoint(), "username": "testuser", "password": "testpass", "user_domain_id": "default",
 			}})
 			th.AssertNoErr(t, err)
-			_, isV2 := got.(auth.AuthOptionsV2)
-			th.AssertEquals(t, test.wantV2, isV2)
+			result, err := got.Authenticate(context.Background(), nil)
+			th.AssertNoErr(t, err)
+			th.AssertEquals(t, "discovered", result.TokenID)
 		})
 	}
 }

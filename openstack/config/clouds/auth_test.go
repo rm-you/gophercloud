@@ -1,6 +1,7 @@
 package clouds_test
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"net/http"
@@ -732,81 +733,38 @@ func TestCloudOptionOverrides(t *testing.T) {
 }
 
 func TestAuthOptionsFromCloudVersionAgnosticAuthType(t *testing.T) {
-	t.Run("AuthPassword with IdentityAPIVersion 2.0 resolves to V2", func(t *testing.T) {
-		fakeServer := setupIdentityVersion(t, "v2.0", "v2.0/")
-		cloud := clouds.Cloud{
-			AuthType:           auth.AuthPassword,
-			IdentityAPIVersion: "2.0",
-			Auth: map[string]any{
-				"auth_url": fakeServer.Endpoint(),
-				"username": "testuser",
-				"password": "testpass",
-			},
+	for _, version := range []string{"v2.0", "v3"} {
+		for _, kind := range []auth.AuthType{auth.AuthPassword, auth.AuthToken} {
+			t.Run(version+"/"+string(kind), func(t *testing.T) {
+				fakeServer := setupIdentityVersion(t, version, version+"/")
+				cloud := clouds.Cloud{AuthType: kind, Auth: map[string]any{
+					"auth_url": fakeServer.Endpoint(), "username": "testuser",
+					"password": "testpass", "user_domain_id": "default", "token": "testtoken",
+				}}
+				path, body := "/v3/auth/tokens", `{"token":{}}`
+				if version == "v2.0" {
+					path, body = "/v2.0/tokens", `{"access":{"token":{"id":"discovered"}}}`
+				}
+				called := false
+				fakeServer.Mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+					called = true
+					th.TestMethod(t, r, http.MethodPost)
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("X-Subject-Token", "discovered")
+					if version != "v2.0" {
+						w.WriteHeader(http.StatusCreated)
+					}
+					fmt.Fprint(w, body)
+				})
+				opts, err := cloud.ToAuthOptions()
+				th.AssertNoErr(t, err)
+				result, err := opts.Authenticate(context.Background(), nil)
+				th.AssertNoErr(t, err)
+				th.AssertEquals(t, true, called)
+				th.AssertEquals(t, "discovered", result.TokenID)
+			})
 		}
-
-		opts, err := cloud.ToAuthOptions()
-		th.AssertNoErr(t, err)
-
-		v2Opts, ok := opts.(auth.AuthOptionsV2)
-		th.AssertEquals(t, true, ok)
-		th.AssertDeepEquals(t, auth.V2PasswordOpts{Username: "testuser", Password: "testpass", AllowReauth: true}, v2Opts.Auth)
-	})
-
-	t.Run("AuthPassword without IdentityAPIVersion resolves to V3", func(t *testing.T) {
-		fakeServer := setupIdentityVersion(t, "v3.0", "v3/")
-		cloud := clouds.Cloud{
-			AuthType: auth.AuthPassword,
-			Auth: map[string]any{
-				"auth_url": fakeServer.Endpoint(),
-				"username": "testuser",
-				"password": "testpass",
-			},
-		}
-
-		opts, err := cloud.ToAuthOptions()
-		th.AssertNoErr(t, err)
-
-		v3Opts, ok := opts.(auth.AuthOptionsV3)
-		th.AssertEquals(t, true, ok)
-		th.AssertDeepEquals(t, auth.V3PasswordOpts{Username: "testuser", Password: "testpass", Scope: &auth.Scope{}, AllowReauth: true}, v3Opts.Auth)
-	})
-
-	t.Run("AuthToken with IdentityAPIVersion 2.0 resolves to V2", func(t *testing.T) {
-		fakeServer := setupIdentityVersion(t, "v2.0", "v2.0/")
-		cloud := clouds.Cloud{
-			AuthType:           auth.AuthToken,
-			IdentityAPIVersion: "2.0",
-			Auth: map[string]any{
-				"auth_url": fakeServer.Endpoint(),
-				"token":    "testtoken",
-			},
-		}
-
-		opts, err := cloud.ToAuthOptions()
-		th.AssertNoErr(t, err)
-
-		v2Opts, ok := opts.(auth.AuthOptionsV2)
-		th.AssertEquals(t, true, ok)
-		th.AssertDeepEquals(t, auth.V2TokenOpts{Token: "testtoken", AllowReauth: true}, v2Opts.Auth)
-	})
-
-	t.Run("AuthToken without IdentityAPIVersion resolves to V3", func(t *testing.T) {
-		fakeServer := setupIdentityVersion(t, "v3.0", "v3/")
-		cloud := clouds.Cloud{
-			AuthType: auth.AuthToken,
-			Auth: map[string]any{
-				"auth_url": fakeServer.Endpoint(),
-				"token":    "testtoken",
-			},
-		}
-
-		opts, err := cloud.ToAuthOptions()
-		th.AssertNoErr(t, err)
-
-		v3Opts, ok := opts.(auth.AuthOptionsV3)
-		th.AssertEquals(t, true, ok)
-		th.AssertDeepEquals(t, auth.V3TokenOpts{Token: "testtoken", Scope: &auth.Scope{}}, v3Opts.Auth)
-	})
+	}
 }
 
 func setupIdentityVersion(t *testing.T, versionID, suffix string) th.FakeServer {

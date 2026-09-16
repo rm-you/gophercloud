@@ -1,13 +1,11 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"maps"
 
 	"github.com/gophercloud/gophercloud/v2"
-	"github.com/gophercloud/gophercloud/v2/openstack/utils"
 )
 
 // CloudOption overrides a single credential in clouds.yaml.
@@ -127,38 +125,16 @@ func AuthOptionsFromCloud(c CloudSource, opts ...CloudOption) (Authenticator, er
 		return AuthOptionsFromCloudV2(c, opts...)
 	case AuthV3Password, AuthV3Totp, AuthV3Token, AuthV3ApplicationCredential, AuthV3MultiFactor:
 		return AuthOptionsFromCloudV3(c, opts...)
-	case AuthPassword, AuthToken: // v2 or v3 not specified so need to determine dynamically
-		_, authURL := mergedAuth(c, opts)
-		if authURL == "" {
-			return nil, gophercloud.ErrMissingInput{Argument: "AuthURL"}
-		}
-
-		base, err := utils.BaseEndpoint(authURL)
+	case AuthPassword, AuthToken:
+		v2, err := AuthOptionsFromCloudV2(c, opts...)
 		if err != nil {
 			return nil, err
 		}
-
-		client := &gophercloud.ProviderClient{
-			IdentityBase:     gophercloud.NormalizeURL(base),
-			IdentityEndpoint: gophercloud.NormalizeURL(authURL),
-		}
-
-		versions := []*utils.Version{
-			{ID: "v2.0", Priority: 20, Suffix: "/v2.0/"},
-			{ID: "v3", Priority: 30, Suffix: "/v3/"},
-		}
-
-		chosen, _, err := utils.ChooseVersion(context.TODO(), client, versions)
+		v3, err := AuthOptionsFromCloudV3(c, opts...)
 		if err != nil {
 			return nil, err
 		}
-
-		switch chosen.ID {
-		case "v2.0":
-			return AuthOptionsFromCloudV2(c, opts...)
-		case "v3":
-			return AuthOptionsFromCloudV3(c, opts...)
-		}
+		return versionedAuthenticator{v2: v2, v3: v3}, nil
 	}
 
 	// Fallback to identity v3 if v2 isn't set explicitly

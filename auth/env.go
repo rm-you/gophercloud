@@ -1,12 +1,10 @@
 package auth
 
 import (
-	"context"
 	"os"
 	"strings"
 
 	"github.com/gophercloud/gophercloud/v2"
-	"github.com/gophercloud/gophercloud/v2/openstack/utils"
 )
 
 func AuthOptionsFromEnv() (Authenticator, error) {
@@ -17,38 +15,15 @@ func AuthOptionsFromEnv() (Authenticator, error) {
 	case AuthV3Password, AuthV3Totp, AuthV3Token, AuthV3ApplicationCredential, AuthV3MultiFactor:
 		return AuthOptionsFromEnvV3()
 	case AuthPassword, AuthToken:
-		authURL := os.Getenv("OS_AUTH_URL")
-		if authURL == "" {
-			return nil, gophercloud.ErrMissingEnvironmentVariable{
-				EnvironmentVariable: "OS_AUTH_URL",
-			}
-		}
-
-		base, err := utils.BaseEndpoint(authURL)
+		v2, err := AuthOptionsFromEnvV2()
 		if err != nil {
 			return nil, err
 		}
-
-		client := &gophercloud.ProviderClient{
-			IdentityBase:     gophercloud.NormalizeURL(base),
-			IdentityEndpoint: gophercloud.NormalizeURL(authURL),
-		}
-		versions := []*utils.Version{
-			{ID: "v2.0", Priority: 20, Suffix: "/v2.0/"},
-			{ID: "v3", Priority: 30, Suffix: "/v3/"},
-		}
-
-		chosen, _, err := utils.ChooseVersion(context.TODO(), client, versions)
+		v3, err := AuthOptionsFromEnvV3()
 		if err != nil {
 			return nil, err
 		}
-
-		switch chosen.ID {
-		case "v2.0":
-			return AuthOptionsFromEnvV2()
-		case "v3":
-			return AuthOptionsFromEnvV3()
-		}
+		return versionedAuthenticator{v2: v2, v3: v3}, nil
 	}
 
 	// Fallback to identity v3 if v2 isn't set explicitly.

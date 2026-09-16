@@ -1,6 +1,7 @@
 package testing
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -95,13 +96,19 @@ func TestAuthOptionsFromEnvGenericPasswordResolvesV2(t *testing.T) {
 	t.Setenv("OS_IDENTITY_API_VERSION", "3")
 	t.Setenv("OS_USERNAME", "testuser")
 	t.Setenv("OS_PASSWORD", "testpass")
+	fakeServer.Mux.HandleFunc("/v2.0/tokens", func(w http.ResponseWriter, r *http.Request) {
+		th.TestMethod(t, r, http.MethodPost)
+		th.TestJSONRequest(t, r, `{"auth":{"passwordCredentials":{"username":"testuser","password":"testpass"}}}`)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access":{"token":{"id":"discovered"}}}`)
+	})
 
 	opts, err := auth.AuthOptionsFromEnv()
 	th.AssertNoErr(t, err)
 
-	v2Opts, ok := opts.(auth.AuthOptionsV2)
-	th.AssertEquals(t, true, ok)
-	th.AssertDeepEquals(t, auth.V2PasswordOpts{Username: "testuser", Password: "testpass", AllowReauth: true}, v2Opts.Auth)
+	result, err := opts.Authenticate(context.Background(), nil)
+	th.AssertNoErr(t, err)
+	th.AssertEquals(t, "discovered", result.TokenID)
 }
 
 func TestAuthOptionsFromEnvGenericTokenResolvesV3(t *testing.T) {
@@ -117,13 +124,21 @@ func TestAuthOptionsFromEnvGenericTokenResolvesV3(t *testing.T) {
 	t.Setenv("OS_AUTH_TYPE", "token")
 	t.Setenv("OS_IDENTITY_API_VERSION", "2.0")
 	t.Setenv("OS_TOKEN", "testtoken")
+	fakeServer.Mux.HandleFunc("/v3/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
+		th.TestMethod(t, r, http.MethodPost)
+		th.TestJSONRequest(t, r, `{"auth":{"identity":{"methods":["token"],"token":{"id":"testtoken"}}}}`)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Subject-Token", "discovered")
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"token":{}}`)
+	})
 
 	opts, err := auth.AuthOptionsFromEnv()
 	th.AssertNoErr(t, err)
 
-	v3Opts, ok := opts.(auth.AuthOptionsV3)
-	th.AssertEquals(t, true, ok)
-	th.AssertDeepEquals(t, auth.V3TokenOpts{Token: "testtoken", Scope: &auth.Scope{}}, v3Opts.Auth)
+	result, err := opts.Authenticate(context.Background(), nil)
+	th.AssertNoErr(t, err)
+	th.AssertEquals(t, "discovered", result.TokenID)
 }
 
 func TestAuthOptionsFromEnvV3Password(t *testing.T) {
