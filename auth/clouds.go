@@ -2,10 +2,11 @@ package auth
 
 import (
 	"encoding/json"
-	"errors"
 	"maps"
+	"time"
 
 	"github.com/gophercloud/gophercloud/v2"
+	"github.com/gophercloud/gophercloud/v2/auth/tokencache"
 )
 
 // CloudOption overrides a single credential in clouds.yaml.
@@ -28,6 +29,14 @@ type CloudOptions struct {
 	ApplicationCredentialName   string
 	ApplicationCredentialSecret string
 	Scope                       *Scope
+	// TokenCache stores reusable unscoped WebSSO tokens.
+	TokenCache tokencache.Cache
+	// TokenCacheNamespace identifies the expected browser login.
+	TokenCacheNamespace string
+	// WebSSOBrowserOpener overrides the system browser launcher.
+	WebSSOBrowserOpener func(string) error
+	// WebSSOTimeout limits the callback wait.
+	WebSSOTimeout time.Duration
 }
 
 // ResolveCloudOptions applies opts in order and returns the result.
@@ -71,12 +80,12 @@ func WithPasscode(passcode string) CloudOption {
 	return func(co *CloudOptions) { co.Passcode = passcode }
 }
 
-// WithDomainID overrides the domain ID.
+// WithDomainID overrides the authorization scope's domain ID.
 func WithDomainID(domainID string) CloudOption {
 	return func(co *CloudOptions) { co.DomainID = domainID }
 }
 
-// WithDomainName overrides the domain name.
+// WithDomainName overrides the authorization scope's domain name.
 func WithDomainName(domainName string) CloudOption {
 	return func(co *CloudOptions) { co.DomainName = domainName }
 }
@@ -121,6 +130,8 @@ type CloudSource interface {
 
 func AuthOptionsFromCloud(c CloudSource, opts ...CloudOption) (Authenticator, error) {
 	switch c.GetAuthType() {
+	case AuthV3WebSSO, AuthV3OIDCClientCredentials, AuthV3OAuth2MTLSClientCredential:
+		return federatedAuthOptions(c, opts...)
 	case AuthV2Password, AuthV2Token:
 		return AuthOptionsFromCloudV2(c, opts...)
 	case AuthV3Password, AuthV3Totp, AuthV3Token, AuthV3ApplicationCredential, AuthV3MultiFactor:
@@ -211,26 +222,14 @@ func AuthOptionsFromCloudV3(c CloudSource, cloudOpts ...CloudOption) (AuthOption
 		}
 	}
 
-	userDomainID, userDomainName, projectDomainID, projectDomainName := resolveDomains(m)
+	userDomainID, userDomainName, _, _ := resolveDomains(m)
 	m["user_domain_id"] = userDomainID
 	m["user_domain_name"] = userDomainName
 
 	co := ResolveCloudOptions(cloudOpts...)
-	scope := co.Scope
-	if scope == nil {
-		systemScope := str(m, "system_scope")
-		if systemScope != "" && systemScope != "all" {
-			return AuthOptionsV3{}, errors.New("only system scope of all is supported")
-		}
-
-		scope = &Scope{
-			ProjectDomainID:   projectDomainID,
-			ProjectDomainName: projectDomainName,
-			ProjectID:         str(m, "project_id"),
-			ProjectName:       str(m, "project_name"),
-			System:            systemScope == "all",
-			TrustID:           str(m, "trust_id"),
-		}
+	scope, err := cloudScope(m, co)
+	if err != nil {
+		return AuthOptionsV3{}, err
 	}
 
 	var opts AuthOptionsBuilderV3
@@ -329,6 +328,11 @@ func mergedAuth(c CloudSource, opts []CloudOption) (map[string]any, string) {
 	src := c.GetAuthData()
 	m := make(map[string]any, len(src)+1)
 	maps.Copy(m, src)
+	for key, value := range environmentAuth() {
+		if existing, ok := m[key]; !ok || existing == "" {
+			m[key] = value
+		}
+	}
 	// allow reauth defaults to true like the openstack keystone client
 	if _, ok := m["allow_reauth"]; !ok {
 		m["allow_reauth"] = true
@@ -353,16 +357,14 @@ func mergedAuth(c CloudSource, opts []CloudOption) (map[string]any, string) {
 }
 
 func resolveDomains(m map[string]any) (userDomainID, userDomainName, projectDomainID, projectDomainName string) {
-	domainID, domainName := str(m, "domain_id"), str(m, "domain_name")
-
-	userDomainID = coalesce(str(m, "user_domain_id"), domainID)
-	userDomainName = coalesce(str(m, "user_domain_name"), domainName)
+	userDomainID = str(m, "user_domain_id")
+	userDomainName = str(m, "user_domain_name")
 	if userDomainID == "" && userDomainName == "" {
 		userDomainID = str(m, "default_domain")
 	}
 
-	projectDomainID = coalesce(str(m, "project_domain_id"), domainID)
-	projectDomainName = coalesce(str(m, "project_domain_name"), domainName)
+	projectDomainID = str(m, "project_domain_id")
+	projectDomainName = str(m, "project_domain_name")
 	if projectDomainID == "" && projectDomainName == "" {
 		projectDomainID = str(m, "default_domain")
 	}

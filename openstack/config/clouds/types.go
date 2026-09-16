@@ -19,12 +19,17 @@ type PublicClouds struct {
 
 // Cloud represents an entry in a clouds.yaml/public-clouds.yaml/secure.yaml file.
 type Cloud struct {
-	Cloud      string         `yaml:"cloud,omitempty" json:"cloud,omitempty"`
-	Profile    string         `yaml:"profile,omitempty" json:"profile,omitempty"`
-	Auth       map[string]any `yaml:"auth,omitempty" json:"auth,omitempty"`
-	AuthType   auth.AuthType  `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
-	RegionName string         `yaml:"region_name,omitempty" json:"region_name,omitempty"`
-	Regions    []Region       `yaml:"regions,omitempty" json:"regions,omitempty"`
+	// Name is the selected clouds.yaml entry, used to isolate browser identities.
+	Name string `yaml:"-" json:"-"`
+	// IdentityProvider and Protocol are fallback federation settings.
+	IdentityProvider string         `yaml:"identity_provider,omitempty" json:"identity_provider,omitempty"`
+	Protocol         string         `yaml:"protocol,omitempty" json:"protocol,omitempty"`
+	Cloud            string         `yaml:"cloud,omitempty" json:"cloud,omitempty"`
+	Profile          string         `yaml:"profile,omitempty" json:"profile,omitempty"`
+	Auth             map[string]any `yaml:"auth,omitempty" json:"auth,omitempty"`
+	AuthType         auth.AuthType  `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
+	RegionName       string         `yaml:"region_name,omitempty" json:"region_name,omitempty"`
+	Regions          []Region       `yaml:"regions,omitempty" json:"regions,omitempty"`
 
 	// EndpointType and Interface both specify whether to use the public, internal,
 	// or admin interface of a service. They should be considered synonymous, but

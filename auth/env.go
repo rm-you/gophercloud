@@ -7,31 +7,19 @@ import (
 	"github.com/gophercloud/gophercloud/v2"
 )
 
-func AuthOptionsFromEnv() (Authenticator, error) {
-	authType := AuthType(os.Getenv("OS_AUTH_TYPE"))
-	switch authType {
-	case AuthV2Password, AuthV2Token:
-		return AuthOptionsFromEnvV2()
-	case AuthV3Password, AuthV3Totp, AuthV3Token, AuthV3ApplicationCredential, AuthV3MultiFactor:
-		return AuthOptionsFromEnvV3()
-	case AuthPassword, AuthToken:
-		v2, err := AuthOptionsFromEnvV2()
-		if err != nil {
-			return nil, err
-		}
-		v3, err := AuthOptionsFromEnvV3()
-		if err != nil {
-			return nil, err
-		}
-		return versionedAuthenticator{v2: v2, v3: v3}, nil
+// AuthOptionsFromEnv constructs an authenticator from OS_* credentials.
+// Options override environment credentials and supply browser/cache hooks.
+func AuthOptionsFromEnv(options ...CloudOption) (Authenticator, error) {
+	c := environmentCloud{data: environmentAuth()}
+	m, endpoint := mergedAuth(c, options)
+	if endpoint == "" {
+		return nil, gophercloud.ErrMissingEnvironmentVariable{EnvironmentVariable: "OS_AUTH_URL"}
 	}
-
-	// Fallback to identity v3 if v2 isn't set explicitly.
-	if os.Getenv("OS_IDENTITY_API_VERSION") == "2.0" {
-		return AuthOptionsFromEnvV2()
+	if c.GetAuthType() == "" && str(m, "password") == "" && str(m, "passcode") == "" &&
+		str(m, "token") == "" && str(m, "application_credential_id") == "" && str(m, "application_credential_name") == "" {
+		return nil, gophercloud.ErrUnsupportedAuthType{}
 	}
-
-	return AuthOptionsFromEnvV3()
+	return AuthOptionsFromCloud(c, options...)
 }
 
 func AuthOptionsFromEnvV2() (AuthOptionsV2, error) {
@@ -122,13 +110,9 @@ func AuthOptionsFromEnvV3() (AuthOptionsV3, error) {
 		}
 	}
 
-	scope := &Scope{
-		DomainID:          os.Getenv("OS_DOMAIN_ID"),
-		DomainName:        os.Getenv("OS_DOMAIN_NAME"),
-		ProjectDomainID:   os.Getenv("OS_PROJECT_DOMAIN_ID"),
-		ProjectDomainName: os.Getenv("OS_PROJECT_DOMAIN_NAME"),
-		ProjectID:         os.Getenv("OS_PROJECT_ID"),
-		ProjectName:       os.Getenv("OS_PROJECT_NAME"),
+	scope, err := cloudScope(environmentAuth(), CloudOptions{})
+	if err != nil {
+		return AuthOptionsV3{}, err
 	}
 
 	var opts AuthOptionsBuilderV3

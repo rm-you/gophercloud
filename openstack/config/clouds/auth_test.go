@@ -517,14 +517,13 @@ func TestAuthOptionsFromCloudScopeResolution(t *testing.T) {
 		}, v3Opts.Auth)
 	})
 
-	t.Run("generic DomainName seeds both user and project domain", func(t *testing.T) {
+	t.Run("authorization domain does not supply the user domain", func(t *testing.T) {
 		cloud := clouds.Cloud{
 			Auth: map[string]any{
-				"auth_url":     "http://example.com:5000",
-				"username":     "testuser",
-				"password":     "testpass",
-				"domain_name":  "shared",
-				"project_name": "testproject",
+				"auth_url":    "http://example.com:5000",
+				"username":    "testuser",
+				"password":    "testpass",
+				"domain_name": "scope-domain",
 			},
 		}
 
@@ -532,16 +531,14 @@ func TestAuthOptionsFromCloudScopeResolution(t *testing.T) {
 		th.AssertNoErr(t, err)
 
 		v3Opts := opts.(auth.AuthOptionsV3)
-		th.AssertDeepEquals(t, auth.V3PasswordOpts{
-			Username:       "testuser",
-			Password:       "testpass",
-			UserDomainName: "shared",
-			AllowReauth:    true,
-			Scope: &auth.Scope{
-				ProjectDomainName: "shared",
-				ProjectName:       "testproject",
-			},
-		}, v3Opts.Auth)
+		password := v3Opts.Auth.(auth.V3PasswordOpts)
+		_, err = password.ToAuthBody()
+		th.AssertErr(t, err)
+		_, ok := err.(gophercloud.ErrDomainIDOrDomainName)
+		th.AssertEquals(t, true, ok)
+		scope, err := password.ToAuthScope()
+		th.AssertNoErr(t, err)
+		th.AssertJSONEquals(t, `{"domain":{"name":"scope-domain"}}`, scope)
 	})
 
 	t.Run("system scope", func(t *testing.T) {
@@ -652,27 +649,31 @@ func TestCloudOptionOverrides(t *testing.T) {
 	})
 
 	t.Run("WithDomainID", func(t *testing.T) {
-		opts, err := baseCloud().ToAuthOptions(auth.WithUsername("u"), auth.WithPassword("p"), auth.WithDomainID("override-domain-id"))
+		cloud := baseCloud()
+		cloud.Auth["user_domain_id"] = "user-domain"
+		opts, err := cloud.ToAuthOptions(auth.WithUsername("u"), auth.WithPassword("p"), auth.WithDomainID("override-domain-id"))
 		th.AssertNoErr(t, err)
 		v3Opts := opts.(auth.AuthOptionsV3)
 		th.AssertDeepEquals(t, auth.V3PasswordOpts{
 			Username:     "u",
 			Password:     "p",
-			UserDomainID: "override-domain-id",
-			Scope:        &auth.Scope{ProjectDomainID: "override-domain-id"},
+			UserDomainID: "user-domain",
+			Scope:        &auth.Scope{DomainID: "override-domain-id"},
 			AllowReauth:  true,
 		}, v3Opts.Auth)
 	})
 
 	t.Run("WithDomainName", func(t *testing.T) {
-		opts, err := baseCloud().ToAuthOptions(auth.WithUsername("u"), auth.WithPassword("p"), auth.WithDomainName("override-domain"))
+		cloud := baseCloud()
+		cloud.Auth["user_domain_name"] = "UserDomain"
+		opts, err := cloud.ToAuthOptions(auth.WithUsername("u"), auth.WithPassword("p"), auth.WithDomainName("override-domain"))
 		th.AssertNoErr(t, err)
 		v3Opts := opts.(auth.AuthOptionsV3)
 		th.AssertDeepEquals(t, auth.V3PasswordOpts{
 			Username:       "u",
 			Password:       "p",
-			UserDomainName: "override-domain",
-			Scope:          &auth.Scope{ProjectDomainName: "override-domain"},
+			UserDomainName: "UserDomain",
+			Scope:          &auth.Scope{DomainName: "override-domain"},
 			AllowReauth:    true,
 		}, v3Opts.Auth)
 	})

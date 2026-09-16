@@ -303,6 +303,35 @@ func TestAuthOptionsFromEnvV3Direct(t *testing.T) {
 	th.AssertDeepEquals(t, auth.V3PasswordOpts{Username: "testuser", Password: "testpass", Scope: &auth.Scope{}, AllowReauth: true}, opts.Auth)
 }
 
+func TestAuthOptionsFromEnvV3Scope(t *testing.T) {
+	for _, test := range []struct {
+		name, system, trust, want string
+		invalid                   bool
+	}{
+		{name: "system", system: "all", want: `{"system":{"all":true}}`},
+		{name: "trust", trust: "trust-id", want: `{"OS-TRUST:trust":{"id":"trust-id"}}`},
+		{name: "invalid system", system: "admin", invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			defer CleanupEnv(t)
+			CleanupEnv(t)
+			SetupEnvV3Password(t)
+			t.Setenv("OS_SYSTEM_SCOPE", test.system)
+			t.Setenv("OS_TRUST_ID", test.trust)
+			t.Setenv("OS_PROJECT_ID", "project")
+			opts, err := auth.AuthOptionsFromEnvV3()
+			if test.invalid {
+				th.AssertErr(t, err)
+				return
+			}
+			th.AssertNoErr(t, err)
+			scope, err := opts.Auth.ToAuthScope()
+			th.AssertNoErr(t, err)
+			th.AssertJSONEquals(t, test.want, scope)
+		})
+	}
+}
+
 func TestAuthOptionsFromEnvV2PasswordCanReauth(t *testing.T) {
 	defer CleanupEnv(t)
 	SetupEnvV2Password(t)
