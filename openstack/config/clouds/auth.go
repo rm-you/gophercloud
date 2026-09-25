@@ -15,7 +15,11 @@ func (c Cloud) GetAuthData() map[string]any {
 	return c.Auth
 }
 
-// Build an Authenticator using parsed clouds.yaml
+// Build an Authenticator using parsed clouds.yaml. WebSSO token caching
+// defaults to a namespace named after the cloud.
 func (c Cloud) ToAuthOptions(opts ...auth.CloudOption) (auth.Authenticator, error) {
+	if c.Name != "" {
+		opts = append([]auth.CloudOption{auth.WithTokenCacheNamespace(c.Name)}, opts...)
+	}
 	return auth.AuthOptionsFromCloud(c, opts...)
 }
