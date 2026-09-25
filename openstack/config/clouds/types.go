@@ -19,6 +19,9 @@ type PublicClouds struct {
 
 // Cloud represents an entry in a clouds.yaml/public-clouds.yaml/secure.yaml file.
 type Cloud struct {
+	// Name is the name of the selected entry. Parse sets it.
+	Name string `yaml:"-" json:"-"`
+
 	Cloud      string         `yaml:"cloud,omitempty" json:"cloud,omitempty"`
 	Profile    string         `yaml:"profile,omitempty" json:"profile,omitempty"`
 	Auth       map[string]any `yaml:"auth,omitempty" json:"auth,omitempty"`
