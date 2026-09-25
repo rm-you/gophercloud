@@ -148,6 +148,7 @@ func Parse(opts ...ParseOption) (Cloud, gophercloud.EndpointOpts, *tls.Config, e
 	}
 
 	endpointType := coalesce(options.endpointType, cloud.EndpointType, cloud.Interface)
+	cloud.Name = options.cloudName
 
 	return cloud,
 		gophercloud.EndpointOpts{

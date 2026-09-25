@@ -50,6 +50,16 @@ const (
 	// AuthEC2Token defines any version of EC2 credentials.
 	// ec2token is not a real keystone auth plugin. Used for consistency
 	AuthEC2Token AuthType = "ec2token"
+
+	// AuthV3WebSSO defines version 3 of WebSSO federation
+	AuthV3WebSSO AuthType = "v3websso"
+
+	// AuthV3OIDCClientCredentials defines version 3 of OIDC client credentials
+	AuthV3OIDCClientCredentials AuthType = "v3oidcclientcredentials"
+
+	// AuthV3OAuth2MTLSClientCredential defines version 3 of the OAuth2 mTLS
+	// client credential
+	AuthV3OAuth2MTLSClientCredential AuthType = "v3oauth2mtlsclientcredential"
 )
 
 // Helper that returns auth method - values are used in request bodies

@@ -14,6 +14,8 @@ func AuthOptionsFromEnv() (Authenticator, error) {
 		return AuthOptionsFromEnvV2()
 	case AuthV3Password, AuthV3Totp, AuthV3Token, AuthV3ApplicationCredential, AuthV3MultiFactor, AuthV3OAuth1:
 		return AuthOptionsFromEnvV3()
+	case AuthV3WebSSO, AuthV3OIDCClientCredentials, AuthV3OAuth2MTLSClientCredential:
+		return federatedAuthOptionsFromEnv(authType)
 	case AuthPassword, AuthToken:
 		v2, err := AuthOptionsFromEnvV2()
 		if err != nil {
@@ -102,7 +104,6 @@ func AuthOptionsFromEnvV2() (AuthOptionsV2, error) {
 func AuthOptionsFromEnvV3() (AuthOptionsV3, error) {
 	authURL := os.Getenv("OS_AUTH_URL")
 	authType := AuthType(os.Getenv("OS_AUTH_TYPE"))
-	systemScope := os.Getenv("OS_SYSTEM_SCOPE")
 	authMethodsRaw := strings.Split(os.Getenv("OS_AUTH_METHODS"), ",")
 	authMethods := make([]AuthType, 0)
 	for _, am := range authMethodsRaw {
@@ -134,19 +135,9 @@ func AuthOptionsFromEnvV3() (AuthOptionsV3, error) {
 		}
 	}
 
-	if systemScope != "" && systemScope != "all" {
-		return AuthOptionsV3{}, gophercloud.ErrInvalidSystemScope{}
-	}
-
-	scope := &Scope{
-		DomainID:          os.Getenv("OS_DOMAIN_ID"),
-		DomainName:        os.Getenv("OS_DOMAIN_NAME"),
-		ProjectDomainID:   os.Getenv("OS_PROJECT_DOMAIN_ID"),
-		ProjectDomainName: os.Getenv("OS_PROJECT_DOMAIN_NAME"),
-		ProjectID:         os.Getenv("OS_PROJECT_ID"),
-		ProjectName:       os.Getenv("OS_PROJECT_NAME"),
-		System:            systemScope == "all",
-		TrustID:           os.Getenv("OS_TRUST_ID"),
+	scope, err := envScope()
+	if err != nil {
+		return AuthOptionsV3{}, err
 	}
 
 	var opts AuthOptionsBuilderV3
@@ -176,6 +167,25 @@ func AuthOptionsFromEnvV3() (AuthOptionsV3, error) {
 	}
 
 	return ao, nil
+}
+
+// envScope returns the authorization scope set by OS_* variables.
+func envScope() (*Scope, error) {
+	systemScope := os.Getenv("OS_SYSTEM_SCOPE")
+	if systemScope != "" && systemScope != "all" {
+		return nil, gophercloud.ErrInvalidSystemScope{}
+	}
+
+	return &Scope{
+		DomainID:          os.Getenv("OS_DOMAIN_ID"),
+		DomainName:        os.Getenv("OS_DOMAIN_NAME"),
+		ProjectDomainID:   os.Getenv("OS_PROJECT_DOMAIN_ID"),
+		ProjectDomainName: os.Getenv("OS_PROJECT_DOMAIN_NAME"),
+		ProjectID:         os.Getenv("OS_PROJECT_ID"),
+		ProjectName:       os.Getenv("OS_PROJECT_NAME"),
+		System:            systemScope == "all",
+		TrustID:           os.Getenv("OS_TRUST_ID"),
+	}, nil
 }
 
 func authMechanismFromType(authType AuthType, scope *Scope) AuthOptionsBuilderV3 {

@@ -799,3 +799,36 @@ func TestAuthOptionsFromCloudAuthTypeOverridesIdentityAPIVersion(t *testing.T) {
 		th.AssertDeepEquals(t, auth.V2PasswordOpts{Username: "testuser", Password: "testpass", AllowReauth: true}, v2Opts.Auth)
 	})
 }
+
+type memoryTokenCache map[string]string
+
+func (c memoryTokenCache) Get(key string) (string, error) { return c[key], nil }
+func (c memoryTokenCache) Set(key, value string) error    { c[key] = value; return nil }
+func (c memoryTokenCache) Delete(key string) error        { delete(c, key); return nil }
+
+func TestWebSSOTokenCacheNamespaceDefaultsToCloudName(t *testing.T) {
+	const cloudsYAML = `
+clouds:
+  personal:
+    auth_type: v3websso
+    auth:
+      auth_url: https://identity.example/v3
+      identity_provider: idp
+      protocol: openid
+`
+	cloud, _, _, err := clouds.Parse(
+		clouds.WithCloudName("personal"),
+		clouds.WithCloudsYAML(strings.NewReader(cloudsYAML)),
+	)
+	th.AssertNoErr(t, err)
+	th.AssertEquals(t, "personal", cloud.Name)
+
+	cache := memoryTokenCache{}
+	opts, err := cloud.ToAuthOptions(auth.WithTokenCache(cache))
+	th.AssertNoErr(t, err)
+	th.AssertEquals(t, "personal", opts.(*auth.V3WebSSOOpts).CacheNamespace)
+
+	opts, err = cloud.ToAuthOptions(auth.WithTokenCache(cache), auth.WithTokenCacheNamespace("shared"))
+	th.AssertNoErr(t, err)
+	th.AssertEquals(t, "shared", opts.(*auth.V3WebSSOOpts).CacheNamespace)
+}

@@ -3,8 +3,10 @@ package auth
 import (
 	"encoding/json"
 	"maps"
+	"time"
 
 	"github.com/gophercloud/gophercloud/v2"
+	"github.com/gophercloud/gophercloud/v2/auth/tokencache"
 )
 
 // CloudOption overrides a single credential in clouds.yaml.
@@ -39,6 +41,14 @@ type CloudOptions struct {
 	AllowReauth                 *bool
 	AuthMethods                 []AuthType
 	Scope                       *Scope
+	// TokenCache stores unscoped WebSSO tokens for reuse.
+	TokenCache tokencache.Cache
+	// TokenCacheNamespace identifies the browser login whose tokens are cached.
+	TokenCacheNamespace string
+	// WebSSOBrowserOpener replaces the system browser launcher.
+	WebSSOBrowserOpener func(string) error
+	// WebSSOTimeout limits how long WebSSO waits for the browser.
+	WebSSOTimeout time.Duration
 }
 
 // ResolveCloudOptions applies opts in order and returns the result.
@@ -198,6 +208,8 @@ func AuthOptionsFromCloud(c CloudSource, opts ...CloudOption) (Authenticator, er
 		return AuthOptionsFromCloudV2(c, opts...)
 	case AuthV3Password, AuthV3Totp, AuthV3Token, AuthV3ApplicationCredential, AuthV3MultiFactor, AuthV3OAuth1:
 		return AuthOptionsFromCloudV3(c, opts...)
+	case AuthV3WebSSO, AuthV3OIDCClientCredentials, AuthV3OAuth2MTLSClientCredential:
+		return federatedAuthOptionsFromCloud(c, opts...)
 	case AuthPassword, AuthToken:
 		v2, err := AuthOptionsFromCloudV2(c, opts...)
 		if err != nil {
@@ -284,24 +296,9 @@ func AuthOptionsFromCloudV3(c CloudSource, cloudOpts ...CloudOption) (AuthOption
 		}
 	}
 
-	co := ResolveCloudOptions(cloudOpts...)
-	scope := co.Scope
-	if scope == nil {
-		systemScope := str(m, "system_scope")
-		if systemScope != "" && systemScope != "all" {
-			return AuthOptionsV3{}, gophercloud.ErrInvalidSystemScope{}
-		}
-
-		scope = &Scope{
-			DomainID:          str(m, "domain_id"),
-			DomainName:        str(m, "domain_name"),
-			ProjectDomainID:   str(m, "project_domain_id"),
-			ProjectDomainName: str(m, "project_domain_name"),
-			ProjectID:         str(m, "project_id"),
-			ProjectName:       str(m, "project_name"),
-			System:            systemScope == "all",
-			TrustID:           str(m, "trust_id"),
-		}
+	scope, err := cloudScope(m, ResolveCloudOptions(cloudOpts...))
+	if err != nil {
+		return AuthOptionsV3{}, err
 	}
 
 	var opts AuthOptionsBuilderV3
@@ -449,6 +446,30 @@ func mergedAuth(c CloudSource, opts []CloudOption) (map[string]any, string) {
 	}
 
 	return m, str(m, "auth_url")
+}
+
+// cloudScope returns the authorization scope of a clouds.yaml entry, unless
+// co replaces it.
+func cloudScope(m map[string]any, co CloudOptions) (*Scope, error) {
+	if co.Scope != nil {
+		return co.Scope, nil
+	}
+
+	systemScope := str(m, "system_scope")
+	if systemScope != "" && systemScope != "all" {
+		return nil, gophercloud.ErrInvalidSystemScope{}
+	}
+
+	return &Scope{
+		DomainID:          str(m, "domain_id"),
+		DomainName:        str(m, "domain_name"),
+		ProjectDomainID:   str(m, "project_domain_id"),
+		ProjectDomainName: str(m, "project_domain_name"),
+		ProjectID:         str(m, "project_id"),
+		ProjectName:       str(m, "project_name"),
+		System:            systemScope == "all",
+		TrustID:           str(m, "trust_id"),
+	}, nil
 }
 
 func setIfNotEmpty(m map[string]any, key, value string) {
